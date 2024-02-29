@@ -1,9 +1,11 @@
 import pandas as pd
-from flask import Blueprint, g, make_response
+from flask import Blueprint, g, make_response, request, jsonify
 from opensky_api import OpenSkyApi
 from requests.exceptions import ReadTimeout
 
 from .map import initial_center
+
+latLonBoundBox = [initial_center["lat"] - 3, initial_center["lat"] + 3, initial_center["lon"] - 3, initial_center["lon"] + 3]
 
 try:
     # try to use the opensky API with credentials
@@ -40,12 +42,23 @@ airport_data = pd.read_excel(
 )
 #! Table of airport data loaded from the excel sheet in "data/us-airports.xlsx"
 
+###previousPlaneStateData = {"previousPlaneData": []}
+#print(previousPlaneStateData)
+
+# THIS IS FOR WHEN OPENSKY DECIDES TO NOT WORK BECAUSE OF MAINTENANCE OR WHATEVER ISSUE OR TIMEOUT DUE TO TOO MANY CALLS, dpesnt work currently
+#@bp.route("/plane_states")
+def recallSavedData():
+    importDumpFile = open("planeDataDumpFile.txt","r")
+    savedData = importDumpFile.readline()
+    importDumpFile.close()
+    return make_response(savedData, 901)
+
 
 @bp.route("/plane_states")
 def plane_states():
     """
-    Fetches the available plane states from the OpenSky Network API within +/- 3
-    degrees of the initial map center (KDAB airport).
+    Fetches the available plane states from the OpenSky Network API within the specified bounding box
+    based on the user display
 
     **Endpoint**: ``/data/plane_states``
 
@@ -67,14 +80,15 @@ def plane_states():
     * ``category`` - (``Number`` | ``int``) Category of the aircraft
     """
     data = {"plane_data": []}
+    ###global previousPlaneStateData
 
     try:
         states = opensky.get_states(
             bbox=(
-                initial_center["lat"] - 3,
-                initial_center["lat"] + 3,
-                initial_center["lon"] - 3,
-                initial_center["lon"] + 3,
+                latLonBoundBox[0],
+                latLonBoundBox[1],
+                latLonBoundBox[2],
+                latLonBoundBox[3],
             )
         )
 
@@ -86,6 +100,7 @@ def plane_states():
 
     if states is None:
         return make_response("Too many requests", 500)
+        #return make_response(previousPlaneStateData, 500) # This just uses data from the previous cycle
 
     for state in states.states:
         data["plane_data"].append(
@@ -105,9 +120,18 @@ def plane_states():
                 "squawk": state.squawk,
                 "position_source": state.position_source,
                 "category": state.category,
+                "category_icon": f"../static/images/markers/planeCategory{state.category}.svg", # f string format
             }
         )
 
+    ###previousPlaneStateData = data
+    
+    #outputDumpFile = open("planeDataDumpFile.txt","a")
+    #outputDumpFile.write(str(data) + "\n")
+    #outputDumpFile.close()
+    
+    #print(previousPlaneStateData)
+    #print(data)
     return make_response(data, 200)
 
 
@@ -209,3 +233,13 @@ def airports(state):
                 response_data["airport_data"].append(data)
 
     return make_response(response_data)
+
+@bp.route("/getMapLatLonBounds", methods=["POST"])
+def getMapLatLonBounds():
+    global latLonBoundBox
+    latLonBoundBox = request.json['latLonBounds'] 
+    return getLatLonBoundBox()
+
+def getLatLonBoundBox():
+    global latLonBoundBox
+    return latLonBoundBox

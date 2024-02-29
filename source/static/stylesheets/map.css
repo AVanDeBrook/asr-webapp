@@ -1,8 +1,25 @@
+:root {
+  --white: #ffffff;
+  --black: #000000;
+  --riddle-gold: #f0c85a;
+  --riddle-navy: #000e2e;
+  --leaflet-light-gray: #f4f4f4; /* Used for leaflet like buttons hover */
+  --leaflet-dark-gray: #cccccc; /* Used for leaflet like buttons selected */
+}
+
 body {
-    font-family: Arial, Helvetica, sans-serif;
-    font-size: 14pt;
+    font-family: Arial, sans-serif;
+    font-size: 12pt;
     padding: 0;
     margin: 0;
+}
+
+ul {
+  font-size: 0;
+}
+
+li {
+  font-size: 12px;
 }
 
 html,
@@ -10,23 +27,60 @@ body,
 #map {
     height: 100%;
     width: 100%;
-    position: relative;
+    position: fixed; 
+    display: flex;
+    align-items: flex-start;
+}
+
+.brightnessFilter {
+  background-color: rgba(0,0,0,0.35);
+  pointer-events: none !important;
 }
 
 #infoPane {
-    height: 100%;
-    width: 30%;
+  border: 2px solid rgba(0,0,0,0.2);
+  border-radius: 4px;
+  margin-top: 5px;
+  margin-bottom: 5px;
+  margin-left: 5px;
+  z-index: 800;
+  display: none;
+  cursor: default;
+}
+
+#infoPaneContent {
+    width: 350px;
+    background-color: var(--riddle-navy);
+    border-radius: 2px;
+    display: flex;
+    flex-direction: column;
+    
+
+    /*
     position: absolute;
-    z-index: 800;
-    background-color: white;
-    display: none;
-    cursor: default;
+    top: 10px;
+    left: 10px;
+    bottom: 10px;*/
 }
 
 #closeButton {
-    height: 25px;
-    width: 25px;
-    float: right;
+    height: 24px; 
+    width: 24px;
+    position: absolute;
+<<<<<<< HEAD
+    right: 1550px;
+    top: 10px;
+    padding: 5px 5px 5px 5px;
+    color: white;
+    background-color: transparent;
+  
+=======
+    right: 0;
+    top: 0;
+    padding: 5px;
+    /*color: var(--white);*/
+    filter: invert(100%);
+>>>>>>> main
 }
 
 #closeButton:hover {
@@ -37,13 +91,19 @@ body,
     transform-origin: center;
 }
 
+.planeMarker svg {
+  fill: yellow; /* Sets the SVG fill color to yellow */
+  stroke: black; /* Sets the SVG stroke color to black */
+  stroke-width: 2; /* Sets the width of the stroke for the outline */
+}
+
 .airportMarker {
     transform-origin: center;
 }
 
 .collapsible {
     padding-top: 2%;
-    background-color: white;
+    background-color: var(--white);
     outline: none;
     border: none;
     text-align: left;
@@ -52,10 +112,9 @@ body,
 
 .collapsible:after {
     content: "\02B9C";
-    float: right;
 }
 
-.active:after {
+.activeTower:after {
     content: "\02B9F";
 }
 
@@ -67,5 +126,367 @@ body,
     padding: 0 18px;
     display: none;
     overflow: hidden;
-    background-color: white;
+    background-color: var(--white);
 }
+
+#zoomedTooFarOut {
+    /*display: flex;*/
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    flex-grow: 1;
+    z-index: 800;
+}
+
+#zoomedTooFarOut span {
+    padding-left: 30px;
+    padding-right: 30px;
+    padding-top: 20px;
+    padding-bottom: 20px;
+    border-radius: 4px 4px;
+    background-color: var(--riddle-navy);
+    font-size: 20px;
+    font-family: Arial, sans-serif;
+    color: var(--white);
+    font-weight: bold;
+}
+
+/* for the collapsable menu menu on the map screen */
+
+.mapCollapsible,
+.mapSideControl button,
+.mapSideControl button a {
+    background-color: var(--white);
+    border: none;
+    border-radius: 2px;
+    cursor: pointer;
+    padding: 0px;
+    width: 30px;
+    height: 30px;
+    text-align: center;
+    outline: none;
+    font-size: 15px;
+    font-family: Arial, sans-serif;
+    font-weight: bold;
+    text-decoration: none;
+  }
+  
+  .active {
+    border-radius: 2px 2px 0px 0px !important;
+  }
+  
+  .active,
+  .mapCollapsible:hover,
+  .collapsibleContent:hover,
+  .mapSideControl button:hover{
+    background-color: var(--leaflet-light-gray);  
+  }
+  
+  .firstButton {
+    border-radius: 2px 2px 0px 0px;
+  }
+  
+  .lastButton {
+    border-radius: 0px 0px 2px 2px;
+  }
+  
+  
+  .mapCollapsible:after {
+    color: var(--riddle-navy);
+    font-weight: bold;
+    content: '\002B';
+  }
+
+  .collapsibleContent {
+    color: var(--riddle-navy);
+    font-weight: bold;
+  }
+  
+  .active:after {
+    content: "\2212";
+  }
+  
+  .contentDropdown p {
+      margin-block-start: 0;
+      margin-block-end: 0;
+  }
+  
+  .contentDropdown {
+    padding: 0 0;
+    box-sizing: border-box;
+    max-height: 0;
+    width: 30px;
+    overflow: hidden;
+    transition: max-height 0.2s ease-out;
+  }
+  
+.mapSideControl {
+  margin-bottom: 10px;
+  width: 30px;
+  border: 2px solid rgba(0,0,0,0.2);
+  background-clip: padding-box;
+  border-radius: 4px;
+  pointer-events: auto;
+}
+  
+.primaryButton {
+  border-radius: 2px 2px 2px 2px;
+  pointer-events: auto;
+}
+
+.collapsibleContent {
+  border-top: 1px solid var(--leaflet-dark-gray) !important;
+  pointer-events: auto;
+  border-radius: 0 !important;
+}
+
+.collapsibleContent:active {
+  background-color: var(--leaflet-dark-gray);
+}
+
+.selectionClusterLocation {
+  position: absolute;
+  z-index: 1000;
+  pointer-events: none;
+  margin-right: 10px;
+  margin-top: 10px;
+  top: 0;
+  right: 0;
+}
+
+#mapSideControlSettings {
+  margin-bottom: 84.67px;
+}
+
+.leaflet-top {
+  top: 88px !important;
+}
+
+<<<<<<< HEAD
+/* Airport Info Pane Styles */
+#infoPane {
+  background-color: #000e2e;
+  color: white;
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.infoPaneTitle {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+
+.airport-info-container {
+  margin-bottom: 20px;
+}
+
+.airport-info-table {
+  width: 100%;
+  border-collapse: collapse;
+=======
+/* infoPane styles */
+
+.infoPaneItem li {
+  list-style-type: none;
+  display: inline-block;
+  /*float: left;*/
+}
+
+.infoPaneLabel {
+  width: 120px;
+}
+
+.infoPaneItem {
+  margin: 0;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 5px;
+  padding-right: 5px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  content: " ";
+  display: block;
+  clear: both;
+}
+
+#infoPaneTitle {
+  padding-top: 5px;
+  padding-bottom: 5px;
+  display: block;
+  font-weight: bold;
+  font-size: 16px;
+  color: var(--white);
+}
+.infoPaneName {
+  background-color: var(--white);
+  color: var(--riddle-navy);
+  font-size: 14px;
+  font-weight: bold;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  text-align: center;
+}
+.infoPaneSubcategory {
+  background-color: var(--leaflet-dark-gray);
+  margin-left: 5px;
+  margin-right: 5px;
+  border-radius: 2px 2px 2px 2px;
+}
+
+#infoPanePrimaryHeader {
+  text-align: center;
+  position: relative;
+}
+
+.infoPaneData {
+  width: 210px;
+>>>>>>> main
+}
+
+.airport-info-table td {
+  padding: 10px;
+  border-bottom: 1px solid #ddd;
+}
+
+.airport-info-table td:first-child {
+  font-weight: bold;
+  color: #f0c85a;
+}
+
+.airport-info-table td a {
+  color: #f0c85a;
+}
+
+.tower-frequencies-container {
+  margin-bottom: 20px;
+}
+
+.tower-frequencies-container h3 {
+  font-size: 20px;
+  font-weight: bold;
+  color: #009688;
+}
+
+#frequencySelect {
+  padding: 8px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  width: 100%;
+  font-size: 16px;
+}
+
+.audio-player-container {
+  margin-top: 10px;
+}
+
+.audio-player-container audio {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+.transcribe-button {
+  background-color: #009688;
+  color: #fff;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.transcribe-button:hover {
+  background-color: #00796b;
+}
+
+/**
+* We want to override leaflet font configs so we mark as !important
+*/
+
+.leaflet-control-zoom-in,
+.leaflet-control-zoom-out {
+  font-size: 15px !important;
+  font-family: Arial, sans-serif !important;
+  color: var(--riddle-navy) !important;
+  font-weight: bold !important;
+}
+
+.toggleActive {
+  background-color: var(--leaflet-dark-gray) !important;
+}
+
+<<<<<<< HEAD
+
+/* PDF Viewer */
+.pdf-viewer {
+  position: absolute;
+  top: 60%;
+  left: 80%;
+  width: 400px;
+  height: 200px;
+  background-color: #ffffff;
+  border: 1px solid #ccc;
+}
+
+.pdf-toolbar {
+  background-color: #f0f0f0;
+  padding: 5px;
+}
+
+.pdf-container {
+  height: calc(100% - 30px);
+  overflow: auto;
+}
+=======
+.infoPaneSubtitle {
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 5px;
+  padding-right: 5px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  font-weight: bold;
+  font-size: 14px;
+  text-align: center;
+  color: var(--riddle-gold);
+}
+
+#airportTranscriptionOutput {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#airportTranscriptionSubcategory {
+  height: 100%;
+  overflow-y: scroll;
+}
+
+.transcriptionMessage {
+  margin: 5px;
+}
+
+.transcriptionMessage p {
+  margin-block-start: 0;
+  margin-block-end: 0;
+  margin-inline-start: 0;
+  margin-inline-end: 0;
+}
+
+.uiIcon {
+  width: 20px;
+  height: 20px;
+  margin: auto;
+  text-align: center;
+  display: block;
+  filter: invert(5%) sepia(57%) saturate(4444%) hue-rotate(213deg) brightness(96%) contrast(105%); 
+}
+
+.mapSideControlSingle {
+  height: 30px;
+}
+>>>>>>> main

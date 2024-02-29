@@ -1,4 +1,10 @@
-var map = L.map('map').fitWorld();
+var map = L.map('map',{
+    zoomControl: false,
+    zoomSnap: 1,
+    zoomDelta: 1,
+    worldCopyJump: true
+}).fitWorld();
+L.control.zoom({ position: 'topright'}).addTo(map);
 
 // Organize different elements into groups (makes it easier to clear and redraw markers on update)
 var planeLayer = L.layerGroup().addTo(map).setZIndex(600);          // For plane markers
@@ -6,12 +12,77 @@ var airportLayer = L.layerGroup().addTo(map).setZIndex(600);        // For airpo
 var infoLayer = L.layerGroup().addTo(map).setZIndex(800);           // For info pane
 var flightPathLayer = L.layerGroup().addTo(map).setZIndex(550);     // For flight path lines
 
+// To do brightness, created a marker that exceeds map size and moves with the screen, make sure to set zIndexOffset really low to be below all other icons.
+// Ideally this would be done cleaner but this is a solution.
+var brightnessMarker = L.marker(map.getCenter(), {zIndexOffset: -1000, icon: L.divIcon({ iconSize: [$(window).width() * 2, $(window).height() * 2], iconAnchor: [$(window).width(), $(window).height()], className: 'brightnessFilter' })}).addTo(map);
+
 var planeData = [];
 var airportData = [];
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors"
-}).addTo(map);
+var callInterval;
+
+var currentMapType = null;
+var currentMapTilesetSelection = "geographic";
+var VFRMapCycle = "20230810";
+var mapTiles = {};
+var mapTypes = {
+    geographic: { maxZoom: 18, defaultZoom: 7 },
+    vfrc: { maxZoom: 11, defaultZoom: 7 }, // Has zoom level 12 in some areas
+    sectc: { maxZoom: 11, defaultZoom: 7 },
+    helic: { maxZoom: 11, defaultZoom: 7 }, // Has zoom level 12 in some areas
+    ifrlc: { maxZoom: 11, defaultZoom: 7 },
+    ehc: { maxZoom: 10, defaultZoom: 7 }
+};
+
+/**
+ * Initalizes the map tilesets from OpenStreetMap and VFRMap
+ */
+function initializeMapTiles() {
+    for (var type in mapTypes) {
+        var mapLink;
+        var mapSettings = {
+            attribution: "&copy; <a href='https://vfrmap.com/tos.html'>VFRMap</a> contributors",
+            maxZoom: mapTypes[type].maxZoom,
+            tms: true
+        };
+        if (type == "geographic") {
+            mapLink = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            mapSettings.attribution = "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
+            mapSettings.tms = false
+        }
+        else {
+            mapLink = "https://vfrmap.com/" + VFRMapCycle + "/tiles/" + type + "/{z}/{y}/{x}.jpg"
+        }
+        mapTiles[type] = L.tileLayer(mapLink, mapSettings);
+    }
+}
+
+/**
+ * Sets the map type to the input map type
+ *
+ * @param {string} mapType string input corresponding to map type can be "geograpgic", "vfrc", "sectc", "helic", "ifrlc", "ehc"
+ * 
+ */
+function setMapType(mapType) {
+    if (currentMapType != null && mapType != currentMapType) {
+        mapTiles[currentMapType].removeFrom(map);
+        currentMapType = mapType;
+        mapTiles[currentMapType].addTo(map);
+    }
+    else if (currentMapType == null) {
+        currentMapType = mapType;
+        mapTiles[currentMapType].addTo(map);
+    }
+}
+
+/**
+ * Initalizes the map with geographical map when the page is loaded
+ */
+function initializeMap() {
+    initializeMapTiles();
+    setMapType("geographic");
+    tileSetChange("geographic");
+}
 
 /**
  * Decodes a transponder type to the string version (i.e. int -> string). Useful for displaying this data in the UI.
@@ -24,22 +95,12 @@ function get_position_source_string(position_source) {
 
     // From the API docs for OpenSky
     switch (position_source) {
-        case 0:
-            source = "ADS-B";
-            break;
-        case 1:
-            source = "ASTERIX";
-            break;
-        case 2:
-            source = "MLAT";
-            break;
-        case 3:
-            source = "FLARM";
-            break;
-        default:
-            source = "N/A";
+        case 0: source = "ADS-B"; break;
+        case 1: source = "ASTERIX"; break;
+        case 2: source = "MLAT"; break;
+        case 3: source = "FLARM"; break;
+        default: source = "N/A";
     }
-
     return source;
 }
 
@@ -48,31 +109,45 @@ function get_position_source_string(position_source) {
  */
 function clear_table() {
     // Remove previous data
-    $("#infoPane").children().each(function (index) {
-        if ($(this).attr("id") != "infoTable" && $(this).attr("id") != "closeButton")
+    $("#infoPaneContent").children().each(function (index) {
+        if ($(this).attr("id") != "infoPanePrimaryHeader") {
             $(this).remove();
-    });
-
-    $("#infoTable").children().each(function (index) {
-        $(this).remove();
+        }
     });
 }
 
 /**
  * Decodes a plane category from the integer representation (i.e. int -> string)
  *
- * @param {int} category plane category from API endpoint
+ * @param {int} category_plane plane category from API endpoint
  * @returns {string} decoded plane category
  */
-function get_plane_category_string(category) {
+function get_plane_category_string(category_plane) {
     var category = "";
-
-    // TODO: there are a lot of categories to cover here
-    switch (category) {
-        default:
-            category = "Unknown";
+    switch (category_plane) {
+        case 0: category = "No Information"; break;
+        case 1: category = "No ADS-B Emitter Category Information"; break;
+        case 2: category = "Light"; break;
+        case 3: category = "Small"; break;
+        case 4: category = "Large"; break;
+        case 5: category = "High Vortex Large"; break;
+        case 6: category = "Heavy"; break;
+        case 7: category = "High Performance"; break;
+        case 8: category = "Rotocraft"; break;
+        case 9: category = "Glider/Sailplane"; break;
+        case 10: category = "Lighter-than-air"; break;
+        case 11: category = "Parachutist/Skydiver"; break;
+        case 12: category = "Ultralight/Hang-Glider/Paraglider"; break;
+        case 13: category = "Reserved"; break;
+        case 14: category = "Unmanned Aerial Vehicle"; break;
+        case 15: category = "Space/Trans-Atmospheric Vehicle"; break;
+        case 16: category = "Surface Vehicle-Emergency Vehicle"; break;
+        case 17: category = "Surface Vehicle-Service Vehicle"; break;
+        case 18: category = "Point Obstacle"; break;
+        case 19: category = "Cluster Obstacle"; break;
+        case 20: category = "Line Obstacle"; break;
+        default: category = "Unknown Aircraft";
     }
-
     return category;
 }
 
@@ -141,117 +216,212 @@ function draw_plane_markers(plane_data) {
     planeLayer.clearLayers();
 
     for (const plane of plane_data) {
-        let marker = L.marker({
-            lat: plane.latitude,
-            lng: plane.longitude,
-        });
+        let marker = L.marker([plane.latitude, plane.longitude]);
 
-        // order in which these methods are called doesn't matter
-        marker.setIcon(planeIcon);
-        // Rotate icon to match actual plane heading
-        marker.setRotationAngle(plane.true_track);
+        if (map.getZoom() < 10) {
+            var mapZoomBasedIconSize = (map.getZoom() * 2);
+            var mapZoomBasedIconSizeCenter = map.getZoom();
+            marker.setIcon(L.icon({ iconUrl: plane.category_icon, iconSize: [mapZoomBasedIconSize, mapZoomBasedIconSize], iconAnchor: [mapZoomBasedIconSizeCenter, mapZoomBasedIconSizeCenter], className: "planeMarker" }));
+        }
+        else {
+            marker.setIcon(L.icon({ iconUrl: plane.category_icon, iconSize: [20, 20], iconAnchor: [10, 10], className: "planeMarker" }));
+        }
+        
+        marker.setRotationAngle(plane.true_track); // Rotate icon to match actual plane heading
+        marker.setRotationOrigin('center center') // This is required otherwise the rotation will mess up where planes actually are
         marker.addTo(planeLayer);
 
-        marker.on('click', () => {
-            clear_table();
+<<<<<<< HEAD
+        marker.on('mouseover', (event) => {
+            marker.bindTooltip(plane.callsign, { permanent: true }).openTooltip();
+        });
 
-            // Add plane entries entries; TODO: find a better way to do this
-            $("#infoTable").append(`
+        marker.on('mouseout', (event) => {
+            marker.closeTooltip();
+=======
+        marker.on('mouseover', (event) => { // testing mouseover for future hover for each aircraft
+            marker.setIcon(L.icon({ iconUrl: '../static/images/markers/airport.svg' })); //temporary
+        });
+        marker.on('mouseout',(event) => {
+            marker.setIcon(L.icon({ iconUrl: plane.category_icon }));
+>>>>>>> main
+        });
+
+        marker.on('click', (event) => {
+            resetLeftPane();
+            console.log(marker.getElement());
+            // Change the title text
+            $("#infoPaneTitle").text("Aircraft");
+
+            // Add airport properties
+<<<<<<< HEAD
+            $("#infoPane").append(`
+            <div class="aircraft-info-container">
+            <table class="aircraft-info-table">
                 <tr>
-                    <th colspan="2">Plane Properties</th>
-                </tr>
-            `);
-            $("#infoTable").append(`
-                <tr>
-                    <td>ICAO 24-bit Address</td>
-                    <td>${plane.icao24.toUpperCase()}</td>
-                </tr>
-            `);
-            $("#infoTable").append(`
-                <tr>
-                    <td>Callsign</td>
+                    <td>Callsign:</td>
                     <td>${plane.callsign}</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Country Origin</td>
-                    <td>${plane.origin_country}</td>
-                </tr>`
-            );
-            $("#infoTable").append(`
-                <tr>
-                    <td>Time of Last Position Report</td>
-                    <td>${Date(plane.time_position)}</td>
-                </tr>
-            `);
-            $("#infoTable").append(`
-                <tr>
-                    <td>Last Contact (time)</td>
-                    <td>${Date(plane.last_contact)}</td>
-                </tr>
-            `);
-            $("#infoTable").append(`
-                <tr>
-                    <td>Position</td>
+                    <td>Position:</td>
                     <td>${plane.latitude}\u00b0N ${plane.longitude}\u00b0W</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Geometric Altitude</td>
+                    <td>ICAO 24-Bit Address:</td>
+                    <td>${plane.icao24.toUpperCase()}</td>
+                </tr>
+                <tr>
+                    <td>Origin Country:</td>
+                    <td>${plane.origin_country}</td>
+                </tr>
+                <tr>
+                    <td>Time of Last Position Report:</td>
+                    <td>${Date(plane.time_position)}</td>
+                </tr>
+                <tr>
+                    <td>Last Contact:</td>
+                    <td>${Date(plane.last_contact)}</td>
+                </tr>
+                <tr>
+                    <td>Geometric Altitude:</td>
                     <td>${plane.geo_altitude} meters</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>On Ground?</td>
+                    <td>On Ground?:</td>
                     <td>${plane.on_ground ? "Yes" : "No"}</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Velocity</td><td>${plane.velocity} meters per second</td>
+                    <td>Velocity:</td>
+                    <td>${plane.velocity} meters per second</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Heading</td>
+                    <td>Heading:</td>
                     <td>${plane.true_track}\u00b0</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Vertical Rate</td>
+                    <td>Vertical Rate:</td>
                     <td>${plane.vertical_rate} meters per second</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Squawk</td>
+                    <td>Squawk:</td>
                     <td>${plane.squawk}</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Position Source</td>
+                    <td>Position Source:</td>
                     <td>${get_position_source_string(plane.position_source)}</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Plane Category</td>
+                    <td>Category:</td>
                     <td>${get_plane_category_string(plane.category)}</td>
                 </tr>
+            </table>
+        </div>
+=======
+            $("#infoPaneContent").append(`
+                <div class="infoPaneCategory">
+                    <div class="infoPaneName">
+                        <span>${plane.callsign}</span>
+                    </div>
+                    <div class="infoPaneSubtitle">
+                        <span>General Information</span>
+                    </div>
+                    <div class="infoPaneSubcategory" id="aircraftGeneralInformation">
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Callsign: </li>
+                                <li class="infoPaneData aircraftCallsign">${plane.callsign}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Position: </li>
+                                <li class="infoPaneData aircraftPosition">${plane.latitude}\u00b0N ${plane.longitude}\u00b0W</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">ICAO 24-Bit Address: </li>
+                                <li class="infoPaneData aircraftICAO">${plane.icao24.toUpperCase()}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Origin Country: </li>
+                                <li class="infoPaneData aircraftOrigin">${plane.origin_country}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Time of Last Position Report: </li>
+                                <li class="infoPaneData aircraftTimePosition">${Date(plane.time_position)}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Last Contact: </li>
+                                <li class="infoPaneData aircraftLastContact">${Date(plane.last_contact)}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Geometric Altitude: </li>
+                                <li class="infoPaneData aircraftGeoAltitude">${plane.geo_altitude} meters</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">On Ground?: </li>
+                                <li class="infoPaneData aircraftGroundStatus">${plane.on_ground ? "Yes" : "No"}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Velocity: </li>
+                                <li class="infoPaneData aircraftVelocity">${plane.velocity} meters per second</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Heading: </li>
+                                <li class="infoPaneData aircraftHeading">${plane.true_track}\u00b0</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Vertical Rate: </li>
+                                <li class="infoPaneData aircraftVerticalRate">${plane.vertical_rate} meters per second</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Squawk: </li>
+                                <li class="infoPaneData aircraftSquawk">${plane.squawk}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Position Source: </li>
+                                <li class="infoPaneData aircraftPositionSource">${get_position_source_string(plane.position_source)}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Category: </li>
+                                <li class="infoPaneData aircraftCategory">${get_plane_category_string(plane.category)}</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+>>>>>>> main
             `);
 
             draw_flight_path(plane.icao24);
 
-            // Hide zoom controls (draws over top of the table)
-            $(".leaflet-control-zoom").hide();
+            // Set the last child to have margin for proper spacing at bottom
+            $("#infoPaneContent").children().last().css("margin-bottom","5px");
 
             // Display data
-            $("#infoPane").show();
+            $("#infoPane").show().css("display","flex");
         });
     }
 }
@@ -270,136 +440,271 @@ function draw_airport_markers(airport_data) {
 
     for (const airport of airport_data) {
         let marker = L.marker([airport.latitude, airport.longitude]);
-        marker.setIcon(airportIcon);
+
+        marker.setIcon(L.icon({
+            iconUrl: "../static/images/markers/airport.svg",
+            iconSize: [30, 30],
+            iconAnchor: [15, 15],
+            className: "airportMarker"
+        }));
+
         marker.addTo(airportLayer);
 
+        marker.on('mouseover', (event) => {
+            marker.bindTooltip(airport.name, { permanent: true }).openTooltip();
+        });
+
+        marker.on('mouseout', (event) => {
+            marker.closeTooltip();
+        });
+
         marker.on('click', (event) => {
-            clear_table();
+            resetLeftPane();
+
+            // Change the title text
+            $("#infoPaneTitle").text("Airport");
 
             // Add airport properties
-            $("#infoTable").append(`
+<<<<<<< HEAD
+            $("#infoPane").append(`
+            <div class="airport-info-container">
+            <table class="airport-info-table">
                 <tr>
-                    <th colspan="2">Airport Properties</th>
-                </tr>
-            `);
-            $("#infoTable").append(`
-                <tr>
-                    <td>Identifier</td>
+                    <td>Identifier:</td>
                     <td>${airport.ident}</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Name</td>
+                    <td>Airport Name:</td>
                     <td>${airport.name}</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Position</td>
+                    <td>Position:</td>
                     <td>${airport.latitude}\u00b0N  ${airport.longitude}\u00b0W</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Elevation</td>
-                    <td>${airport.elevation} feet</td>
+                    <td>Elevation:</td>
+                    <td>${airport.elevation} Feet</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Region Name</td>
+                    <td>Region:</td>
                     <td>${airport.region_name}</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Municipality</td>
+                    <td>Municipality:</td>
                     <td>${airport.municipality}</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>GPS Code</td>
+                    <td>GPS Code:</td>
                     <td>${airport.gps_code}</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>IATA Code</td>
+                    <td>IATA Code:</td>
                     <td>${airport.iata_code}</td>
                 </tr>
-            `);
-            $("#infoTable").append(`
                 <tr>
-                    <td>Local Code</td>
+                    <td>Local Code:</td>
                     <td>${airport.local_code}</td>
                 </tr>
+            </table>
+        </div>
+=======
+            $("#infoPaneContent").append(`
+                <div class="infoPaneCategory">
+                    <div class="infoPaneName">
+                        <span>${airport.name} ${airport.ident}</span>
+                    </div>
+                    <div class="infoPaneSubtitle">
+                        <span>General Information</span>
+                    </div>
+                    <div class="infoPaneSubcategory" id="airportGeneralInformation">
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Airport Identifier: </li>
+                                <li class="infoPaneData airportIdentifier">${airport.ident}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Airport Name: </li>
+                                <li class="infoPaneData airportName">${airport.name}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Position: </li>
+                                <li class="infoPaneData airportPosition">${airport.latitude}\u00b0N  ${airport.longitude}\u00b0W</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Elevation: </li>
+                                <li class="infoPaneData airportElevation">${airport.elevation} Feet</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Region: </li>
+                                <li class="infoPaneData airportRegion">${airport.region_name}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Municipality: </li>
+                                <li class="infoPaneData airportMunicipality">${airport.municipality}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">GPS Code: </li>
+                                <li class="infoPaneData airportGPS">${airport.gps_code}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">IATA Code: </li>
+                                <li class="infoPaneData airportIATA">${airport.iata_code}</li>
+                            </ul>
+                        </div>
+                        <div>
+                            <ul class="infoPaneItem">
+                                <li class="infoPaneLabel">Local Code: </li>
+                                <li class="infoPaneData airportLocal">${airport.local_code}</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+>>>>>>> main
             `);
-            $("#infoTable").append(`
-                <tr>
-                    <td>Website</td>
-                    <td>${airport.home_link}</td>
-                </tr>
-            `);
+            if (airport.home_link != null) { // if the airport doesn't have a website, don't display a website block
+                $("#airportGeneralInformation").append(`
+                    <div>
+                        <ul class="infoPaneItem">
+                            <li class="infoPaneLabel">Website: </li>
+                            <li class="infoPaneData airportWebsite"><a href=${airport.home_link}>${airport.name}</a></li>
+                        </ul>
+                    </div>
+                `);
+            }
 
             // If there are airport frequencies available, add them to the info pane
             if (airport.tower_frequencies) {
-                // collapsible button to show/hide media players
-                const $tower_freq = $(`
-                    <button type='button' class='collapsible'>Tower Frequencies</button>
-                `);
-                // container for the media players and labels
-                let $content_div = $("<div class='content'></div>");
+                $("#infoPaneContent").append(`
+                    <div class="infoPaneCategory">
+                        <div class="infoPaneSubtitle">
+                            <span>Tower Frequencies</span>
+                        </div>
+                        <div class="infoPaneSubcategory" id="airportFrequencyInformation">
+                            <div>
+                                <ul class="infoPaneItem">
+                                    <li class="infoPaneLabel">Frequency: </li>
+                                    <li class="infoPaneData">
+                                        <select id='frequencySelect'>
+                                            <option disabled selected value=''>Select a Frequency</option>
+                                        </select>
+                                    </li>
+                                </ul>
+                            </div>
+                            <div id="airportTowerAudioContainer">
 
-                // click event handler for the tower frequency dropdown
-                $tower_freq.on("click", () => {
-                    // toggle visibility
-                    $content_div.toggle();
-                    // toggle active class (mostly for visual feedback)
-                    $tower_freq.toggleClass("active");
+                            </div>
+                        </div>
+                    </div>
+                    <div class="infoPaneCategory" id="airportTranscriptionOutput">
+                        <div class="infoPaneSubtitle">
+                            <span>Live Transcription</span>
+                        </div>
+                        <div class="infoPaneSubcategory" id="airportTranscriptionSubcategory">
+                            
+                        </div>
+                    </div>
+                `);
+<<<<<<< HEAD
+
+
+
+                // Select frequency button
+                const $selectFrequency = $(`
+                    <select id='frequencySelect'>
+                        <option value='' disabled selected>Select a Frequency</option>
+                    </select>
+                    `);
+
+                $("#infoPane").children().last().after($tower_freq); // after the last div for the above block place this
+=======
+>>>>>>> main
+
+                // Add frequencies to the dropdown menu
+                for (const frequency of airport.tower_frequencies) {
+                    $("#frequencySelect").append(`
+                        <option value='${frequency}'>${frequency}</option>
+                    `);
+                }
+
+<<<<<<< HEAD
+                // Create an audio player container
+                const $audioContainer = $("<div class='audio-container'></div>");
+
+
+=======
+>>>>>>> main
+                // Event handler for when a frequency is selected
+                $("#frequencySelect").on("change", function() {
+                    const selectedFrequency = $(this).val();
+
+                    // Clear the audio container
+                    $("#airportTowerAudioContainer").empty();
+
+                    if (selectedFrequency) {
+                        // Create an audio player for the selected frequency
+                        const audioSrc = `https://livetraffic2.near.aero/stream/${airport.ident}_${selectedFrequency.replace(".", "")}.mp3`;
+                        const audioPlayer = $(`
+                            <audio controls src="${audioSrc}" onplay="transcribeLiveAudio('${audioSrc}')"></audio>
+                        `);
+
+<<<<<<< HEAD
+                        // Define $transcribeButton
+=======
+                        /*
+>>>>>>> main
+                        const $transcribeButton = $(`#transcribe-${airport.ident}_${selectedFrequency.replace(".", "")}`);
+
+                        
+                        $transcribeButton.on("click", (event) => {
+                            $.ajax({
+                                url: "/models/transcribe",
+                                method: "POST",
+                                contentType: "text/plain",
+                                data: `https://livetraffic2.near.aero/stream/${airport.ident}_${selectedFrequency.replace(".", "")}.mp3`,
+                            }).done(() => {
+                                console.log("Done");
+                            })
+                        });
+                        */
+                        // Append the audio player and transcribe button to the audio container
+                        $("#airportTowerAudioContainer").append(audioPlayer /*, $transcribeButton*/);
+                    }
+<<<<<<< HEAD
+
                 });
 
-                // place collapsible menu after the airport properties
-                $("#infoTable").after($tower_freq);
-                // 'content' div for the media players after the frequency menus
-                $tower_freq.after($content_div);
 
-                for (const frequency of airport.tower_frequencies) {
-                    let $audio_figure = $(`
-                        <figure>
-                            <figcaption>${frequency}</figcaption>
-                        </figure>
-                    `);
+                // Append the select frequency dropdown to the info pane
+                $("#infoPane").append($selectFrequency);
 
-                    $content_div.append($audio_figure);
-                    $audio_figure.append(`
-                        <audio
-                            controls
-                            src="https://livetraffic2.near.aero/stream/${airport.ident}_${frequency.replace(".", "")}.mp3"
-                        >
-                        </audio>
-                        <button id="transcribe-${airport.ident}_${frequency.replace(".", "")}">Transcribe</button>
-                    `);
+                // Append the audio container to the info pane
+                $("#infoPane").append($audioContainer);
 
-                    $(`#transcribe-${airport.ident}_${frequency.replace(".", "")}`).on("click", (event) => {
-                        $.ajax({
-                            url: "/models/transcribe",
-                            method: "POST",
-                            contentType: "text/plain",
-                            data: `https://livetraffic2.near.aero/stream/${airport.ident}_${frequency.replace(".", "")}.mp3`,
-                        }).done(() => {
-                            console.log("Done");
-                        })
-                    });
-                }
+=======
+                });
+                $("#map").css("align-items","normal");
+>>>>>>> main
             }
 
-            // Hide zoom controls (draws over top of the table)
-            $(".leaflet-control-zoom").hide();
+            // Set the last child to have margin for proper spacing at bottom
+            $("#infoPaneContent").children().last().css("margin-bottom","5px");
 
             // Display data
-            $("#infoPane").show();
+            $("#infoPane").show().css("display","flex");
         });
     }
 }
@@ -411,27 +716,29 @@ function setup_event_listeners() {
     // Event listener for clicking on the close button
     $("#closeButton").on('click', (event) => {
         // Hide table
-        $("#infoPane").hide();
-        // Redraw zoom controls
-        $(".leaflet-control-zoom").show();
+        resetLeftPane();
+        //$("#infoPane").hide();
     });
 
     // Prevent mouse events from interacting with the map below the info panel
-    $("#infoPane").on('click', (event) => {
-        event.stopImmediatePropagation();
-    });
-
-    $("#infoPane").on('dblclick', (event) => {
+    
+    $("#infoPane").on('click dblclick mousedown', (event) => {
         event.stopImmediatePropagation();
     });
 
     // Clears and redraws icons when a map zoom event fires.
     // This is to address an issue where the placement of the icons becomes less accurate the further in the map zooms.
-    map.on('zoom', function (event) {
+    map.on("zoom", function (event) {
         planeLayer.clearLayers();
         flightPathLayer.clearLayers();
-
-        draw_plane_markers(planeData);
+        if (map.getZoom() > 7) {
+            draw_plane_markers(planeData);
+        }
+    });
+    map.on("zoomend", onMapZoomEnd);
+    map.on("moveend", onMapMoveEnd);
+    map.on("move", function() {
+        brightnessMarker.setLatLng(map.getCenter());
     });
 }
 
@@ -452,10 +759,220 @@ function main() {
         draw_plane_markers(plane_data_request.response.plane_data);
     });
 
-    // Create a GET request to send to the plane_states endpoint
-    plane_data_request.open("GET", "/data/plane_states");
-    // Specify a JSON return type
-    plane_data_request.responseType = "json";
-    // Send request
-    plane_data_request.send();
+    plane_data_request.open("GET", "/data/plane_states"); // Create a GET request to send to the plane_states endpoint
+    plane_data_request.responseType = "json"; // Specify a JSON return type
+    plane_data_request.send(); // Send request
 }
+
+function onMapZoomEnd() {
+    updateMapBoundingBoxCoordinates();
+    checkMapZoomLevel();
+}
+
+function onMapMoveEnd() {
+    updateMapBoundingBoxCoordinates();
+}
+
+/**
+ * Returns the geographical bounds visible in the current map view in an array.
+ *
+ * @returns {Array} Minimum Latitude (South), Maximum Latitude (North), Minimum Longitude (West), Maxiumum Longitude (East)
+ */
+function getMapBoundingBoxCoordinates() {
+    boundingCoordinates = [
+        map.getBounds().getSouth(),
+        map.getBounds().getNorth(),
+        map.getBounds().getWest(),
+        map.getBounds().getEast()
+    ]
+    return boundingCoordinates;
+}
+
+/**
+ * updates the geographical bounds visible in the current map view for data.
+ */
+function updateMapBoundingBoxCoordinates() {
+    $.ajax({
+        url: '/data/getMapLatLonBounds',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ latLonBounds: getMapBoundingBoxCoordinates() }),
+    });
+}
+
+function checkMapZoomLevel() {
+    if (map.getZoom() < 8) {
+        $(".leaflet-map-pane").css("filter","blur(3px)");
+        $("#zoomedTooFarOut").css("display","flex");
+
+        clearInterval(callInterval); // clear the current interval we have to stop calling planes
+        callInterval = null;
+    }
+    else {
+        $(".leaflet-map-pane").css("filter","blur(0px)");
+        $("#zoomedTooFarOut").css("display","none");
+
+        if (map.getZoom() == 8 && callInterval == null) {
+            callInterval = setInterval(main, 30000);
+        }
+    }
+}
+
+function dropDownSelection() {
+    var coll = document.getElementsByClassName("mapCollapsible");
+    coll[0].classList.toggle("active");
+    var content = coll[0].nextElementSibling;
+    if (content.style.maxHeight) {
+        content.style.maxHeight = null;
+    }
+    else {
+        content.style.maxHeight = content.scrollHeight + "px";
+    }
+}
+
+function tileSetChange(mapType) {
+    $(`#${currentMapTilesetSelection}`).css("background-color","");
+    $(`#${mapType}`).css("background-color","#cccccc");
+    currentMapTilesetSelection = mapType;
+    setMapType(mapType);
+}
+
+function toggleSettings() {
+    $("#map").css("align-items","flex-start"); // have to do this
+    clear_table(); // and this, because we don't call resetLeftPane() because it interferes with this function, ideally find better solution
+    if ($("#settingsButton").hasClass("toggleActive")) {
+        $("#infoPane").hide();
+    }
+    else {
+        $("#infoPaneTitle").text("Settings");
+        $("#infoPane").show().css("display","flex");
+        $("#infoPaneContent").append(`
+            <div class="infoPaneCategory">
+                <div class="infoPaneName">
+                    <span>Change User Preferences</span>
+                </div>
+                <div class="infoPaneSubtitle">
+                    <span>General Settings</span>
+                </div>
+                <div class="infoPaneSubcategory">
+                    <div>
+                        <ul class="infoPaneItem">
+                            <li class="infoPaneLabel">Brightness: </li>
+                            <li class="infoPaneData">
+                                <div class="settingSliderContainer">
+                                    <input type="range" min="0" max="70" value="35" class="settingSlider" id="settingBrightness">
+                                </div>
+                            </li>
+                       </ul>
+                   </div>
+                </div>
+            </div>
+        `);
+        $("#settingBrightness").on('input change', (event) => {
+            $(".brightnessFilter").css("background-color",`rgba(0,0,0,${parseInt($("#settingBrightness").val()) / 100})`);
+            //console.log(`a: ${$("#settingBrightness").val()} b: ${$(".brightnessFilter").css("background-color")}`);
+        });
+        // Set the last child to have margin for proper spacing at bottom
+        $("#infoPaneContent").children().last().css("margin-bottom","5px");
+    }
+    $("#settingsButton").toggleClass("toggleActive");
+}
+
+<<<<<<< HEAD
+//Function for PDF
+/*
+// Function to create and initialize the PDF viewer window
+function initializePDFViewer() {
+    // Create the PDF viewer container
+    const pdfViewerContainer = document.createElement('div');
+    pdfViewerContainer.id = 'pdfViewer';
+    pdfViewerContainer.classList.add('pdf-viewer');
+
+    // Create the PDF toolbar
+    const pdfToolbar = document.createElement('div');
+    pdfToolbar.classList.add('pdf-toolbar');
+
+    // Previous page button
+    const prevPageButton = document.createElement('button');
+    prevPageButton.id = 'prevPage';
+    prevPageButton.textContent = 'Previous';
+
+    // Current page indicator
+    const currentPageIndicator = document.createElement('span');
+    currentPageIndicator.id = 'currentPage';
+    currentPageIndicator.textContent = 'Page 1';
+
+    // Next page button
+    const nextPageButton = document.createElement('button');
+    nextPageButton.id = 'nextPage';
+    nextPageButton.textContent = 'Next';
+
+    // Append toolbar elements to the toolbar container
+    pdfToolbar.appendChild(prevPageButton);
+    pdfToolbar.appendChild(currentPageIndicator);
+    pdfToolbar.appendChild(nextPageButton);
+
+    // Create the PDF container
+    const pdfContainer = document.createElement('div');
+    pdfContainer.id = 'viewerContainer';
+    pdfContainer.classList.add('pdf-container');
+
+    // Append toolbar and PDF container to the PDF viewer container
+    pdfViewerContainer.appendChild(pdfToolbar);
+    pdfViewerContainer.appendChild(pdfContainer);
+
+    // Append PDF viewer container to the document body
+    document.body.appendChild(pdfViewerContainer);
+}
+
+// Call the function to initialize the PDF viewer
+initializePDFViewer();
+*/
+=======
+function resetLeftPane() {
+    $("#map").css("align-items","flex-start");
+    clear_table();
+    $("#infoPane").hide();
+    if ($("#settingsButton").hasClass("toggleActive")) {
+        $("#settingsButton").removeClass("toggleActive");
+    }
+}
+
+function findAudioSource() {
+    // need to center map camera to location of audio source: plane, airport, etc.
+    // map.panTo();
+}
+
+function transcribeLiveAudio(liveAudioSource) {
+    // fetch the transcriptions for given live audio stream
+    //$("#transcriptionOutput").text("Live Transcription Established from: " + liveAudioSource);
+    // currently just changes a text element, in future we will want to append each "message" below the previous along with tagging the "speaker"
+
+    $("#airportTranscriptionSubcategory").prepend(`
+    <div class="transcriptionMessage">
+        <p>><strong> [Speaker]: </strong>
+            Live Transcription Established from: ${liveAudioSource}
+        </p>
+    </div>
+    `);
+    
+    $.ajax({
+        url: "/models/transcribe",
+        method: "POST",
+        contentType: "text/plain",
+        data: 'text',
+        success: function(response) { console.log(response) },
+        error: function(error) { console.log(error) }
+    });
+}
+
+function appendMessage() {
+    $("#airportTranscriptionSubcategory").append(`
+    <div class="infoPaneCategory">
+        <p>><strong> [Speaker]: </strong>
+            Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged.
+        </p>
+    </div>
+    `);
+}
+>>>>>>> main
